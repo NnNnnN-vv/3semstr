@@ -8,8 +8,8 @@ build-backend = "setuptools.build_meta"
 # сведения о пакете
 [project]
 name = "cryptocore"
-version = "0.1.0"
-description = "CLI tool for AES-128 file encryption in ECB mode"
+version = "0.2.0"
+description = "Шифрование файлов AES-128 в режимах ECB, CBC, CFB, OFB и CTR"
 readme = "README.md"
 requires-python = ">=3.8"
 # внешние библиотеки, pip ставит их автоматически
