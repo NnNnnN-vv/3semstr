@@ -1,6 +1,4 @@
-# описание проекта для pip: чем собирать, что ставить и какую команду создать
-
-# инструмент сборки: pip скачивает setuptools и собирает им пакет
+# инструмент сборки
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
@@ -8,20 +6,21 @@ build-backend = "setuptools.build_meta"
 # сведения о пакете
 [project]
 name = "cryptocore"
-version = "0.2.0"
-description = "Шифрование файлов AES-128 в режимах ECB, CBC, CFB, OFB и CTR"
+version = "0.5.0"
+description = "Шифрование файлов AES-128 (ECB, CBC, CFB, OFB, CTR), хеши SHA-256, SHA3-256 и HMAC, AES-CMAC"
 readme = "README.md"
 requires-python = ">=3.8"
-# внешние библиотеки, pip ставит их автоматически
+
+# внешние библиотеки
 dependencies = ["pycryptodome>=3.15"]
 
-# консольная команда: cryptocore запускает функцию main из файла cli_parser
+
 [project.scripts]
 cryptocore = "cryptocore.cli_parser:main"
 
-# какие пакеты входят в установку
+#пакеты входят в установку
 [tool.setuptools]
-packages = ["cryptocore", "cryptocore.modes"]
+packages = ["cryptocore", "cryptocore.modes", "cryptocore.hash", "cryptocore.mac"]
 
 # каталог src/ устанавливается под именем пакета cryptocore
 [tool.setuptools.package-dir]

@@ -1,6 +1,6 @@
 # CryptoCore
 
-Консольный инструмент для шифрования и расшифрования файлов алгоритмом AES-128 в режимах ECB, CBC, CFB, OFB и CTR.
+Консольный инструмент для шифрования и расшифрования файлов алгоритмом AES-128 в режимах ECB, CBC, CFB, OFB и CTR, хеши SHA-256 и SHA3-256, коды аутентификации HMAC и AES-CMAC.
 
 ## Зависимости
 
@@ -25,7 +25,7 @@ cryptocore --help
 ## Использование
 
 ```
-cryptocore --algorithm aes --mode MODE (--encrypt | --decrypt) --key KEY [--iv IV] --input INPUT_FILE [--output OUTPUT_FILE]
+cryptocore --algorithm aes --mode MODE (--encrypt | --decrypt) [--key KEY] [--iv IV] --input INPUT_FILE [--output OUTPUT_FILE]
 ```
 
 | Аргумент | Значение |
@@ -33,12 +33,12 @@ cryptocore --algorithm aes --mode MODE (--encrypt | --decrypt) --key KEY [--iv I
 | `--algorithm` | шифр, поддерживается `aes` |
 | `--mode` | режим работы: `ecb`, `cbc`, `cfb`, `ofb`, `ctr` |
 | `--encrypt` / `--decrypt` | операция, указывается ровно один из флагов |
-| `--key` | ключ AES-128: 32 шестнадцатеричных символа (16 байт) |
+| `--key` | ключ AES-128: 32 шестнадцатеричных символа (16 байт); при шифровании необязателен |
 | `--iv` | вектор инициализации: 32 шестнадцатеричных символа (16 байт), только для расшифрования в режимах `cbc`, `cfb`, `ofb`, `ctr` |
 | `--input` | путь к входному файлу |
 | `--output` | путь к выходному файлу; если не указан, используется `INPUT_FILE.enc` при шифровании и `INPUT_FILE.dec` при расшифровании |
 
-При любой ошибке (неверные аргументы, недоступный файл, повреждённый шифротекст или неверный ключ) сообщение выводится в `stderr`, а код возврата отличен от нуля.
+При любой ошибке сообщение выводится в `stderr`, а код возврата отличен от нуля.
 
 ### Режимы
 
@@ -91,6 +91,65 @@ cryptocore --algorithm aes --mode cbc --decrypt --key 000102030405060708090a0b0c
 
 Для других режимов меняется только значение `--mode`.
 
+### Ключ не указан
+
+При шифровании без `--key` генерируется случайный 16-байтовый ключ и один раз печатается в `stdout`. В файл он не пишется, сохраните его сами. При расшифровании `--key` обязателен. На слабый ключ (все байты одинаковые, байты подряд, повторы) выводится предупреждение в `stderr`.
+
+```bash
+cryptocore --algorithm aes --mode ctr --encrypt --input plain.txt --output cipher.bin
+# [INFO] Generated random key: 3f9c1e0a7b52d84e6a0c91f27d3b5e08
+cryptocore --algorithm aes --mode ctr --decrypt --key 3f9c1e0a7b52d84e6a0c91f27d3b5e08 --input cipher.bin --output plain.dec.txt
+```
+
+Ключи и IV берутся из `generate_random_bytes` (`src/csprng.py`), которая вызывает `os.urandom` — CSPRNG операционной системы. Его выход непредсказуем: по выданным байтам нельзя вычислить ни следующие, ни предыдущие. При сбое генератора выдаётся `RandomGenerationError`.
+
+## Хеширование: `dgst`
+
+```
+cryptocore dgst --algorithm {sha256,sha3-256} --input FILE [--output FILE]
+```
+
+Вывод как у `sha256sum`: `хеш путь`. `--input -` читает stdin, `--output` пишет ту же строку в файл.
+
+```bash
+echo -n "abc" | cryptocore dgst --algorithm sha256 --input -
+cryptocore dgst --algorithm sha3-256 --input backup.tar --output backup.sha3
+```
+
+- **SHA-256** (`src/hash/sha256.py`, FIPS 180-4)
+- **SHA3-256** (`src/hash/sha3_256.py`, FIPS 202)
+
+Оба стойки к коллизиям и поиску прообраза, изменение одного бита входа меняет примерно половину бит хеша. SHA-256 уязвим к атаке удлинением, поэтому для подписи с ключом нужен HMAC.
+
+## HMAC и AES-CMAC
+
+```
+cryptocore dgst --algorithm ALG --hmac --key KEY --input FILE [--output FILE | --verify MAC_FILE]
+cryptocore dgst --cmac --key KEY --input FILE [--output FILE | --verify MAC_FILE]
+```
+
+`--key` — hex: для HMAC любой длины, для CMAC 16 байт. Вывод: `MAC путь`. `--verify` сравнивает с первым значением в файле: `[OK]` и код 0 или `[ERROR]` и код 1.
+
+```bash
+echo -n "Hi There" > test.txt
+cryptocore dgst --algorithm sha256 --hmac --key 0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b --input test.txt
+# b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7 test.txt
+
+cryptocore dgst --algorithm sha256 --hmac --key 00112233445566778899aabbccddeeff --input test.txt --output test.hmac
+cryptocore dgst --algorithm sha256 --hmac --key 00112233445566778899aabbccddeeff --input test.txt --verify test.hmac
+# [OK] HMAC verification successful
+```
+
+**HMAC** (`src/mac/hmac.py`, RFC 2104)
+
+```
+HMAC(K, m) = H((K ⊕ opad) ∥ H((K ⊕ ipad) ∥ m))
+```
+
+Ключ длиннее блока хешируется, короче — дополняется нулями. Без ключа MAC не подделать, атака удлинением не работает.
+
+**AES-CMAC** (`src/mac/cmac.py`, NIST SP 800-38B) — CBC-MAC на AES, последний блок перед шифрованием XOR-ится с подключом `K1` или `K2`.
+
 ## Проверка
 
 Команды ниже рассчитаны на bash (Linux, macOS, Git Bash в Windows).
@@ -142,25 +201,42 @@ done
 
 В обоих случаях для каждого из четырёх режимов выводится строка с `OK`, а `diff` не показывает различий. Режим `-aes-128-cfb` в OpenSSL — это CFB с сегментом 128 бит, как и в `cryptocore`.
 
+### NIST STS
+
+Скачать [NIST STS](https://csrc.nist.gov/projects/random-bit-generation/documentation-and-software), собрать `make`, затем:
+
+```bash
+python -m src.csprng путь/sts-2.1.2/sts-2.1.2/data/cryptocore.bin 12500000
+cd путь/sts-2.1.2/sts-2.1.2
+printf '0\ndata/cryptocore.bin\n1\n0\n100\n1\n' | ./assess 1000000
+```
+
+Результат — в `experiments/AlgorithmTesting/finalAnalysisReport.txt`. Тест пройден, если `p-value >= 0.01`. Процедура и результаты — в TESTING.md.
+
 ### Автоматические тесты
 
 ```bash
 python -m unittest discover tests -v
 ```
 
-Тесты повторяют все проверки выше для текстовых, бинарных и пустых файлов, а также сверяют режимы с векторами NIST SP 800-38A. Тесты с OpenSSL пропускаются, если `openssl` не установлен.
+Проверяют шифрование (векторы NIST, OpenSSL), генератор ключей, хеши (векторы NIST, `sha256sum`, файл больше 1 ГБ) и HMAC/CMAC (RFC 4231, NIST SP 800-38B, `--verify`). Тесты с OpenSSL пропускаются, если его нет.
 
 ## Структура проекта
 
 ```
 ├── src/
 │   ├── cli_parser.py     # разбор аргументов и запуск операции
+│   ├── csprng.py         # генератор случайных байт
 │   ├── file_io.py        # чтение и запись файлов как байтов, отделение IV
+│   ├── hash/             # sha256.py, sha3_256.py
+│   ├── mac/              # hmac.py, cmac.py
 │   └── modes/
 │       ├── ecb.py        # режим ECB и дополнение PKCS#7
 │       └── iv_modes.py   # режимы CBC, CFB, OFB, CTR и генерация IV
 ├── tests/
-│   └── test_cryptocore.py
+│   ├── test_cryptocore.py
+│   ├── test_hash.py
+│   └── test_mac.py
 ├── pyproject.toml        # сборка и зависимости
 └── README.md
 ```
