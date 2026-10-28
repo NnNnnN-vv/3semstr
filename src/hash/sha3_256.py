@@ -58,14 +58,14 @@ class SHA3_256:
         if data:
             self.update(data)
 
-    # XOR в первые 17 слов, затем перестановка
+    # XOR в первые 17, затем перестановка
     def process_block(self, block: bytes) -> None:
         # слова в Keccak младшим байтом вперёд
         for i in range(RATE // 8):
             self.state[i] ^= int.from_bytes(block[8 * i:8 * i + 8], "little")
         self.state = keccak_f(self.state)
 
-    # дополнение pad10*1 с доменом SHA-3 для сообщения, в хвосте которого tail_len байт
+
     @staticmethod
     def padding(tail_len: int) -> bytes:
         n = RATE - tail_len % RATE

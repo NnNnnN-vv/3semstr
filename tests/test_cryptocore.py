@@ -154,7 +154,7 @@ class TestCli(CliTestCase):
             "missing operation": without("--encrypt", has_value=False),
             "both operations": good + ["--decrypt"],
             "unknown algorithm": ["--algorithm", "des"] + without("--algorithm"),
-            "unknown mode": ["--mode", "gcm"] + without("--mode"),
+            "unknown mode": ["--mode", "xts"] + without("--mode"),
             "key not hex": with_key("zz0102030405060708090a0b0c0d0e0f"),
             "key too short": with_key("000102"),
             "key too long": with_key(KEY_HEX + "00"),

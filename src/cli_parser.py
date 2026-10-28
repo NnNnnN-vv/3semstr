@@ -3,9 +3,10 @@ import sys
 
 from . import hash as hash_algorithms
 from . import mac
+from .aead import AuthenticationError
 from .csprng import RandomGenerationError, generate_random_bytes
 from .file_io import read_chunks, read_file, split_iv, write_file
-from .modes import ecb, iv_modes
+from .modes import ecb, gcm, iv_modes
 
 
 # преобразование hex-строки в байты
@@ -26,9 +27,26 @@ def hex_key(value: str) -> bytes:
     return _hex_bytes(value, "key", ecb.KEY_SIZE)
 
 
-# значение --iv
+# значение --iv: 16 байт для CBC, CFB, OFB, CTR, для GCM любой длины
 def hex_iv(value: str) -> bytes:
-    return _hex_bytes(value, "IV", iv_modes.IV_SIZE)
+    try:
+        result = bytes.fromhex(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("IV must be a hexadecimal string")
+    if not result or len(value) != len(result) * 2:
+        raise argparse.ArgumentTypeError("IV must be a non-empty hexadecimal string without spaces")
+    return result
+
+
+# значение --aad, может быть пустым
+def hex_aad(value: str) -> bytes:
+    try:
+        result = bytes.fromhex(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("AAD must be a hexadecimal string")
+    if len(value) != len(result) * 2:
+        raise argparse.ArgumentTypeError("AAD must be a hexadecimal string without spaces")
+    return result
 
 def weak_key_reason(key: bytes):
     if len(set(key)) == 1:
@@ -46,14 +64,14 @@ def weak_key_reason(key: bytes):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cryptocore",
-        description="Шифрование файлов AES-128 в режимах ECB, CBC, CFB, OFB и CTR",
+        description="Шифрование файлов AES-128 в режимах ECB, CBC, CFB, OFB, CTR и GCM",
         epilog="хеширование: cryptocore dgst --algorithm {sha256,sha3-256} --input FILE "
                "(подробнее: cryptocore dgst --help)",
         # запрет сокращений
         allow_abbrev=False,
     )
     parser.add_argument("--algorithm", required=True, choices=["aes"], help="cipher: aes")
-    parser.add_argument("--mode", required=True, choices=["ecb", *iv_modes.MODES],
+    parser.add_argument("--mode", required=True, choices=["ecb", *iv_modes.MODES, "gcm"],
                         help="mode of operation")
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--encrypt", action="store_true", help="encrypt the input file")
@@ -61,9 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--key", type=hex_key, metavar="KEY",
                         help="key as 32 hex characters, e.g. 000102030405060708090a0b0c0d0e0f; "
                              "required for --decrypt, generated randomly for --encrypt if omitted")
-    parser.add_argument("--iv", type=hex_iv, metavar="IV",
+    parser.add_argument("--iv", "--nonce", dest="iv", type=hex_iv, metavar="IV",
                         help="IV as 32 hex characters, decryption only "
-                             "(default: first 16 bytes of INPUT_FILE)")
+                             "(default: first 16 bytes of INPUT_FILE); for gcm the nonce, "
+                             "12 bytes by default")
+    parser.add_argument("--aad", type=hex_aad, metavar="DATA",
+                        help="associated data as hex, gcm only (default: empty)")
     parser.add_argument("--input", required=True, metavar="INPUT_FILE", help="input file path")
     parser.add_argument("--output", metavar="OUTPUT_FILE",
                         help="output file path (default: INPUT_FILE.enc or INPUT_FILE.dec)")
@@ -192,6 +213,7 @@ def dgst_main(argv) -> int:
     return 0
 
 
+# запуск программы, код возврата: 0 - успех, 1 - ошибка
 def main(argv=None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -202,11 +224,16 @@ def main(argv=None) -> int:
     # при ошибке в аргументах
     args = parser.parse_args(argv)
     # проверки сочетаний аргументов
-    if args.iv is not None and args.encrypt:
+    if args.iv is not None and args.encrypt and args.mode != "gcm":
         parser.error("argument --iv: not allowed with --encrypt, "
                      "the IV is generated automatically")
     if args.iv is not None and args.mode == "ecb":
         parser.error("argument --iv: not allowed with --mode ecb, ECB does not use an IV")
+    if args.iv is not None and args.mode in iv_modes.MODES and len(args.iv) != iv_modes.IV_SIZE:
+        parser.error(f"argument --iv: IV must be exactly {iv_modes.IV_SIZE * 2} hex characters "
+                     f"({iv_modes.IV_SIZE} bytes)")
+    if args.aad is not None and args.mode != "gcm":
+        parser.error("argument --aad: allowed only with --mode gcm")
     if args.key is None and args.decrypt:
         parser.error("argument --key: required for --decrypt")
     output = args.output or args.input + (".enc" if args.encrypt else ".dec")
@@ -235,7 +262,9 @@ def main(argv=None) -> int:
 
     #шифрование или расшифрование
     try:
-        if args.mode == "ecb":
+        if args.mode == "gcm":
+            result = gcm_crypt(args, data)
+        elif args.mode == "ecb":
             # ECB работает без IV
             result = [ecb.encrypt(args.key, data) if args.encrypt else ecb.decrypt(args.key, data)]
         else:
@@ -252,6 +281,10 @@ def main(argv=None) -> int:
                     # IV не задан
                     iv, data = split_iv(data, iv_modes.IV_SIZE)
                 result = [decrypt(args.key, iv, data)]
+    except AuthenticationError as e:
+        # открытый текст не выводится, выходной файл не создаётся
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
     except (ValueError, RandomGenerationError) as e:
         print(f"cryptocore: error: {e}", file=sys.stderr)
         return 1
@@ -263,8 +296,27 @@ def main(argv=None) -> int:
         print(f"cryptocore: error: cannot write output file '{output}': {e.strerror}",
               file=sys.stderr)
         return 1
+    if args.mode == "gcm" and args.decrypt:
+        print("[SUCCESS] Decryption completed successfully")
     return 0
 
+
+# GCM: файл nonce || C || tag, при расшифровании тег проверяется до записи
+def gcm_crypt(args, data: bytes) -> list:
+    aad = args.aad or b""
+    if args.encrypt:
+        if args.iv is not None:
+            print("[WARNING] fixed nonce: never reuse a nonce with the same key", file=sys.stderr)
+        g = gcm.GCM(args.key, args.iv)
+        ciphertext, tag = g.seal(data, aad)
+        return [g.nonce, ciphertext, tag]
+    if args.iv is None:
+        nonce, data = split_iv(data, gcm.NONCE_SIZE)
+    else:
+        nonce = args.iv
+    if len(data) < gcm.TAG_SIZE:
+        raise ValueError(f"input file is too short to contain a {gcm.TAG_SIZE}-byte tag")
+    return [gcm.GCM(args.key, nonce).open(data[:-gcm.TAG_SIZE], data[-gcm.TAG_SIZE:], aad)]
 
 
 if __name__ == "__main__":

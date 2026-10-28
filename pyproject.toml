@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 # сведения о пакете
 [project]
 name = "cryptocore"
-version = "0.5.0"
-description = "Шифрование файлов AES-128 (ECB, CBC, CFB, OFB, CTR), хеши SHA-256, SHA3-256 и HMAC, AES-CMAC"
+version = "0.6.0"
+description = "Шифрование файлов AES-128 (ECB, CBC, CFB, OFB, CTR, GCM), хеши SHA-256, SHA3-256, HMAC, AES-CMAC и AEAD (GCM, Encrypt-then-MAC)"
 readme = "README.md"
 requires-python = ">=3.8"
 
@@ -20,7 +20,7 @@ cryptocore = "cryptocore.cli_parser:main"
 
 #пакеты входят в установку
 [tool.setuptools]
-packages = ["cryptocore", "cryptocore.modes", "cryptocore.hash", "cryptocore.mac"]
+packages = ["cryptocore", "cryptocore.modes", "cryptocore.hash", "cryptocore.mac", "cryptocore.aead"]
 
 # каталог src/ устанавливается под именем пакета cryptocore
 [tool.setuptools.package-dir]

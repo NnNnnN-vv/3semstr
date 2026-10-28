@@ -228,6 +228,4 @@ provided in the addendum section of the documentation.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 ```
 
-## Вывод
-
-Все 15 тестов пройдены.
+Тесты пройдены.
